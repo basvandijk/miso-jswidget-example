@@ -7,7 +7,6 @@
 module Main where
 
 import           Control.Concurrent ( forkIO )
-import qualified Control.Concurrent.STM.TChan as STM
 import           Control.Lens ( (^.), (.=), (%=), makeLenses, zoom, use )
 import           Control.Monad ( forever, void )
 import qualified Control.Monad.STM as STM
@@ -50,27 +49,15 @@ data Action
 main :: IO ()
 main = do
     initModel <- initialModel
-    actionChannel <- STM.newTChanIO
-
     Miso.startApp App
       { initialAction = NoOp
       , model         = initModel
-      , update        = Miso.fromTransition . updateModel actionChannel
+      , update        = Miso.fromTransition . updateModel
       , view          = viewModel
       , events        = Miso.defaultEvents
-      , subs          = [sinkSub actionChannel]
+      , subs          = []
       , mountPoint    = Nothing
       }
-
--- | Listens to some channel and throws everything it gets in the sink,
--- causing those actions to end up in the update function. The flatpickr
--- component needs this sink to add event listeners to the widget, for it
--- needs some way to get an action back into the update function when events
--- are fired.
-sinkSub :: STM.TChan action -> Sub action model
-sinkSub actionChannel _getModel sink = void $ forkIO $ forever $ do
-    action <- STM.atomically $ STM.readTChan actionChannel
-    sink action
 
 initialModel :: IO Model
 initialModel = do
@@ -87,14 +74,14 @@ initialModel = do
       , _mDate             = day
       }
 
-updateModel :: STM.TChan Action -> Action -> Transition Action Model ()
-updateModel actionChannel action = case action of
+updateModel :: Action -> Transition Action Model ()
+updateModel action = case action of
     NoOp -> pure ()
 
     FlatpickrAction act -> do
       date <- use mDate
       zoom mFlatpickr $
-        Flatpickr.updateModel (flatpickrIface date) sink act
+        Flatpickr.updateModel (flatpickrIface date) act
 
     ToggleCalendarVisibility ->
       mFlatpickrVisible %= not
@@ -107,9 +94,7 @@ updateModel actionChannel action = case action of
       zoom mFlatpickr $
         Flatpickr.updateModel
           (flatpickrIface date)
-          sink
           (Flatpickr.SetDate date)
-
 
     NextDay -> do
       mDate %= Time.addDays 1
@@ -119,13 +104,10 @@ updateModel actionChannel action = case action of
       zoom mFlatpickr $
         Flatpickr.updateModel
           (flatpickrIface date)
-          sink
           (Flatpickr.SetDate date)
 
     DateChange day ->
       mDate .= day
-  where
-    sink = STM.atomically . STM.writeTChan actionChannel
 
 viewModel :: Model -> View Action
 viewModel m =

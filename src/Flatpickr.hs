@@ -121,11 +121,10 @@ makeLenses ''Model
 -- | Handles the @Action@s defined above.
 updateModel
     :: Interface action
-    -> (action -> IO ())
     -> Action action
     -> Miso.Transition action Model ()
-updateModel iface sink action = case action of
-    OnCreated -> Miso.scheduleIO $ do
+updateModel iface action = case action of
+    OnCreated -> Miso.scheduleIOWithSink $ \sink -> do
       -- Turn the options into a Javascript value
       jsOpts <- toJSVal $ options iface
       domElement <- getElementById (uniqueId iface)
@@ -135,7 +134,7 @@ updateModel iface sink action = case action of
       addOnChangeEvent iface sink flatpickr
 
       -- Throw the FlatpickrCreated, so we can store the widget in our model
-      pure $ passAction iface $ FlatpickrCreated flatpickr
+      sink $ passAction iface $ FlatpickrCreated flatpickr
 
     OnDestroyed -> do
       maybeFlatpickr <- use mFlatpickr
